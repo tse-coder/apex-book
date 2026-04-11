@@ -9,12 +9,13 @@ struct InboundEvent {
     EventType type;
     uint32_t symbol_id; 
     uint64_t order_id;
+    uint64_t user_id;
     uint64_t price;
     uint64_t quantity;
     Side side;
 };
 
-enum class OutboundEventType { TRADE, BOOK_UPDATE };
+enum class OutboundEventType { TRADE, BOOK_UPDATE, ORDER_REJECTED };
 
 // Outbound: Engine -> MDP / Gateway
 struct OutboundEvent {
@@ -26,4 +27,7 @@ struct OutboundEvent {
     uint64_t seller_id;
     uint64_t price;
     uint64_t quantity;
+    
+    // Reject info
+    uint64_t order_id;
 };

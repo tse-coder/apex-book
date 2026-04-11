@@ -10,20 +10,22 @@
 #include <unordered_set>
 
 int main() {
-    // 1. Initialize Lock-Free Queues (Must be power of 2)
     SPSCQueue<InboundEvent> inbound(1024 * 1024);
     SPSCQueue<OutboundEvent> outbound(1024 * 1024);
 
-    // 2. Start the Engine Manager (Pinned Thread)
     EngineManager engine(inbound, outbound);
+    
+    // Seed Users with massive funds for testing
+    for (uint64_t u = 1; u <= 10; ++u) {
+        engine.deposit(u, 0, 100000000); // 100M USD
+        engine.deposit(u, 1, 1000000);   // 1M BTC
+        engine.deposit(u, 2, 1000000);   // 1M ETH
+    }
+
     engine.start();
 
     std::unordered_set<crow::websocket::connection*> clients;
     std::mutex clients_mutex;
-    
-    // We will keep a local cache of the snapshot since the engine is lock-free
-    std::string latest_snapshot = "{}";
-    std::mutex snapshot_mutex;
 
     crow::SimpleApp app;
 
@@ -35,12 +37,8 @@ int main() {
       .onclose([&](crow::websocket::connection& conn, const std::string& reason) {
           std::lock_guard<std::mutex> lock(clients_mutex);
           clients.erase(&conn);
-      })
-      .onmessage([&](crow::websocket::connection& /*conn*/, const std::string& data, bool is_binary) {
-          // If we receive orders via WS, we parse and push to inbound queue here
       });
 
-    // 3. Market Data Publisher (Reads outbound queue)
     std::thread mdp_thread([&]() {
         while(true) {
             OutboundEvent out;
@@ -49,9 +47,8 @@ int main() {
                     std::cout << "[TRADE] Symbol: " << out.symbol_id 
                               << " Price: " << out.price 
                               << " Qty: " << out.quantity << "\n";
-                } else if (out.type == OutboundEventType::BOOK_UPDATE) {
-                    // For Phase 1 simulation, we just tell the main thread to grab a snapshot.
-                    // (In Phase 3 this will be proper delta publishing)
+                } else if (out.type == OutboundEventType::ORDER_REJECTED) {
+                    std::cout << "[REJECTED] Order " << out.order_id << " (Insufficient Funds)\n";
                 }
             } else {
                 std::this_thread::yield();
@@ -59,35 +56,33 @@ int main() {
         }
     });
 
-    // 4. Network/Gateway Thread (Simulating incoming orders)
     std::thread gateway_thread([&]() {
         uint64_t id = 1;
         std::mt19937 gen(1337);
         std::uniform_int_distribution<uint64_t> price_dist(950, 1050);
         std::uniform_int_distribution<uint64_t> qty_dist(1, 100);
         std::uniform_int_distribution<int> side_dist(0, 1);
-        std::uniform_int_distribution<uint32_t> symbol_dist(1, 2); // 1 = BTC, 2 = ETH
+        std::uniform_int_distribution<uint32_t> symbol_dist(1, 2);
+        std::uniform_int_distribution<uint64_t> user_dist(1, 10);
 
         while (true) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             
-            // Push 5 random orders per tick
             for(int i=0; i<5; ++i) {
                 InboundEvent ev;
                 ev.type = EventType::ADD_ORDER;
                 ev.symbol_id = symbol_dist(gen);
                 ev.order_id = id++;
+                ev.user_id = user_dist(gen);
                 ev.price = price_dist(gen);
                 ev.quantity = qty_dist(gen);
                 ev.side = side_dist(gen) == 0 ? Side::BUY : Side::SELL;
                 
-                while(!inbound.push(ev)) { /* Spin if full */ }
+                while(!inbound.push(ev)) {}
             }
 
-            // Since the engine doesn't have a mutex, we must stop it to safely grab a snapshot for the UI.
-            // In a real system, the MDP builds the snapshot from deltas.
             engine.stop();
-            std::string snap = engine.get_snapshot(1); // Get BTC snapshot for WebSocket
+            std::string snap = engine.get_snapshot(1);
             engine.start();
 
             {
@@ -99,7 +94,7 @@ int main() {
         }
     });
 
-    std::cout << "Starting Phase 1: Lock-Free Scaled Architecture on ws://localhost:8080/ws\n";
+    std::cout << "Starting Phase 2: Pre-Trade Risk Architecture on ws://localhost:8080/ws\n";
     app.port(8080).multithreaded().run();
 
     engine.stop();

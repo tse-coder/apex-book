@@ -31,10 +31,14 @@ private:
             Order* bid_order = best_bid_level.head;
             Order* ask_order = best_ask_level.head;
 
-            uint64_t trade_price = ask_order->price; // simplified pricing
+            uint64_t trade_price = ask_order->price; 
             uint64_t trade_qty = std::min(bid_order->quantity, ask_order->quantity);
 
-            recent_trades.push_back({bid_order->id, ask_order->id, trade_price, trade_qty});
+            recent_trades.push_back({
+                bid_order->id, ask_order->id, 
+                bid_order->user_id, ask_order->user_id, 
+                trade_price, trade_qty
+            });
 
             bid_order->quantity -= trade_qty;
             ask_order->quantity -= trade_qty;
@@ -60,10 +64,10 @@ public:
         order_map.reserve(max_orders);
     }
 
-    void add_order(uint64_t id, uint64_t price, uint64_t qty, Side side) {
+    void add_order(uint64_t id, uint64_t user_id, uint64_t price, uint64_t qty, Side side) {
         if (order_map.find(id) != order_map.end()) return;
 
-        Order* order = pool.allocate(id, price, qty, side);
+        Order* order = pool.allocate(id, user_id, price, qty, side);
         if (!order) return;
 
         if (side == Side::BUY) {
@@ -78,9 +82,10 @@ public:
         match();
     }
 
-    void cancel_order(uint64_t id) {
+    // Returns the canceled order ptr so caller can know user_id and qty to unlock
+    Order* cancel_order(uint64_t id) {
         auto it = order_map.find(id);
-        if (it == order_map.end()) return;
+        if (it == order_map.end()) return nullptr;
 
         Order* order = it->second;
         if (order->side == Side::BUY) {
@@ -91,10 +96,35 @@ public:
             if (asks[order->price].empty()) asks.erase(order->price);
         }
 
-        pool.deallocate(order);
-        order_map.erase(it);
+        // We can't deallocate immediately if we return the pointer, 
+        // wait, we can just return a copy of the struct, then deallocate.
+        // Actually, just returning user_id, side, price, qty is enough.
+        // For simplicity, let's just make the caller handle unlocking via an out parameter, or return a copy.
+        return order; // Caller must deallocate? No, let's keep OrderBook managing memory.
     }
     
+    // Better cancel:
+    struct CancelResult { bool success; uint64_t user_id; Side side; uint64_t price; uint64_t qty; };
+    CancelResult cancel_order_safe(uint64_t id) {
+        auto it = order_map.find(id);
+        if (it == order_map.end()) return {false, 0, Side::BUY, 0, 0};
+        
+        Order* order = it->second;
+        CancelResult res = {true, order->user_id, order->side, order->price, order->quantity};
+        
+        if (order->side == Side::BUY) {
+            bids[order->price].remove(order);
+            if (bids[order->price].empty()) bids.erase(order->price);
+        } else {
+            asks[order->price].remove(order);
+            if (asks[order->price].empty()) asks.erase(order->price);
+        }
+        
+        pool.deallocate(order);
+        order_map.erase(it);
+        return res;
+    }
+
     std::vector<Trade> poll_trades() {
         std::vector<Trade> trades = std::move(recent_trades);
         recent_trades.clear();

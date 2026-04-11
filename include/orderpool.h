@@ -14,11 +14,12 @@ public:
         }
     }
 
-    Order* allocate(uint64_t id, uint64_t price, uint64_t qty, Side side) {
+    Order* allocate(uint64_t id, uint64_t user_id, uint64_t price, uint64_t qty, Side side) {
         if(free_list.empty()) return nullptr;
         Order* o = free_list.back();
         free_list.pop_back();
         o->id = id;
+        o->user_id = user_id;
         o->price = price;
         o->quantity = qty;
         o->side = side;
