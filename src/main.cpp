@@ -1,6 +1,7 @@
 #include "orderbook.h"
 #include "engine_manager.h"
 #include "spsc_queue.h"
+#include "event_journal.h"
 #include "crow.h"
 #include <iostream>
 #include <thread>
@@ -15,7 +16,6 @@ int main() {
 
     EngineManager engine(inbound, outbound);
     
-    // Seed Users with massive funds for testing
     for (uint64_t u = 1; u <= 10; ++u) {
         engine.deposit(u, 0, 100000000); // 100M USD
         engine.deposit(u, 1, 1000000);   // 1M BTC
@@ -39,10 +39,17 @@ int main() {
           clients.erase(&conn);
       });
 
+    // Market Data Publisher + Event Sourcing (Phase 3)
     std::thread mdp_thread([&]() {
+        EventJournal journal("apex_journal.bin");
+        
         while(true) {
             OutboundEvent out;
             if (outbound.pop(out)) {
+                // 1. Zero-Copy Append to Memory-Mapped File (O(1))
+                journal.append(out);
+
+                // 2. Broadcast / Log Event
                 if (out.type == OutboundEventType::TRADE) {
                     std::cout << "[TRADE] Symbol: " << out.symbol_id 
                               << " Price: " << out.price 
@@ -94,7 +101,7 @@ int main() {
         }
     });
 
-    std::cout << "Starting Phase 2: Pre-Trade Risk Architecture on ws://localhost:8080/ws\n";
+    std::cout << "Starting Phase 3: Zero-Copy Event Sourcing on ws://localhost:8080/ws\n";
     app.port(8080).multithreaded().run();
 
     engine.stop();
