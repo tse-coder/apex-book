@@ -3,6 +3,7 @@
 #include "spsc_queue.h"
 #include "events.h"
 #include "account_manager.h"
+#include "rdtsc.h"
 #include <unordered_map>
 #include <thread>
 #include <atomic>
@@ -18,7 +19,7 @@ private:
     std::thread engine_thread;
 
     uint32_t get_base_asset(uint32_t symbol_id) {
-        return symbol_id; // Simplicity: symbol 1 = BTC/USD (Base 1). symbol 2 = ETH/USD (Base 2).
+        return symbol_id; 
     }
 
     void process_event(const InboundEvent& ev) {
@@ -28,10 +29,9 @@ private:
 
         OrderBook& book = books.at(ev.symbol_id);
         uint32_t base_asset = get_base_asset(ev.symbol_id);
-        uint32_t quote_asset = 0; // USD
+        uint32_t quote_asset = 0; 
 
         if (ev.type == EventType::ADD_ORDER) {
-            // Pre-trade risk check
             bool risk_passed = false;
             if (ev.side == Side::BUY) {
                 uint64_t required_usd = ev.price * ev.quantity;
@@ -47,13 +47,13 @@ private:
                 out.type = OutboundEventType::ORDER_REJECTED;
                 out.symbol_id = ev.symbol_id;
                 out.order_id = ev.order_id;
+                out.match_ts = rdtsc(); // Track reject time
                 while(!outbound_queue.push(out)) {}
-                return; // Stop processing this event
+                return; 
             }
         } else if (ev.type == EventType::CANCEL_ORDER) {
             auto cancel_res = book.cancel_order_safe(ev.order_id);
             if (cancel_res.success) {
-                // Unlock funds
                 if (cancel_res.side == Side::BUY) {
                     accounts.unlock_funds(cancel_res.user_id, quote_asset, cancel_res.price * cancel_res.qty);
                 } else {
@@ -62,9 +62,7 @@ private:
             }
         }
 
-        // Process trades
         for (const Trade& t : book.poll_trades()) {
-            // Settlement (locked funds -> available funds)
             accounts.settle_trade(t.buyer_user_id, t.seller_user_id, base_asset, t.price, t.quantity);
 
             OutboundEvent out;
@@ -74,6 +72,7 @@ private:
             out.seller_id = t.seller_order_id;
             out.price = t.price;
             out.quantity = t.quantity;
+            out.match_ts = rdtsc(); // Hardware TS right after match
             
             while(!outbound_queue.push(out)) {}
         }
@@ -81,6 +80,7 @@ private:
         OutboundEvent out_update;
         out_update.type = OutboundEventType::BOOK_UPDATE;
         out_update.symbol_id = ev.symbol_id;
+        out_update.match_ts = rdtsc();
         while(!outbound_queue.push(out_update)) {}
     }
 
@@ -117,7 +117,6 @@ public:
         }
     }
     
-    // Test helper to seed accounts before starting
     void deposit(uint64_t user_id, uint32_t asset_id, uint64_t amount) {
         accounts.deposit(user_id, asset_id, amount);
     }

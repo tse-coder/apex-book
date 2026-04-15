@@ -13,6 +13,7 @@ struct InboundEvent {
     uint64_t price;
     uint64_t quantity;
     Side side;
+    uint64_t enqueue_ts; // Hardware timestamp
 };
 
 enum class OutboundEventType { TRADE, BOOK_UPDATE, ORDER_REJECTED };
@@ -28,6 +29,7 @@ struct OutboundEvent {
     uint64_t price;
     uint64_t quantity;
     
-    // Reject info
+    // Reject / latency info
     uint64_t order_id;
+    uint64_t match_ts; // Hardware timestamp
 };
