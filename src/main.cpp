@@ -39,7 +39,7 @@ int main() {
           clients.erase(&conn);
       });
 
-    // Market Data Publisher + Event Sourcing (Phase 3)
+    // Market Data Publisher + Event Sourcing
     std::thread mdp_thread([&]() {
         EventJournal journal("apex_journal.bin");
         
@@ -101,7 +101,7 @@ int main() {
         }
     });
 
-    std::cout << "Starting Phase 3: Zero-Copy Event Sourcing on ws://localhost:8080/ws\n";
+    std::cout << "Starting ApexBook Core Exchange on ws://localhost:8080/ws\n";
     app.port(8080).multithreaded().run();
 
     engine.stop();

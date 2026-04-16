@@ -37,7 +37,7 @@ class ApexClient:
             async for message in self.ws:
                 data = json.loads(message)
                 self.book.update_from_snapshot(data)
-                # In Phase 3, this would be a delta update!
+                # Implement delta update processing here
         except websockets.exceptions.ConnectionClosed:
             logger.error("Connection Closed")
 
