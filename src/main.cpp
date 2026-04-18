@@ -9,6 +9,7 @@
 #include <chrono>
 #include <random>
 #include <unordered_set>
+#include <sstream>
 
 int main() {
     SPSCQueue<InboundEvent> inbound(1024 * 1024);
@@ -17,9 +18,9 @@ int main() {
     EngineManager engine(inbound, outbound);
     
     for (uint64_t u = 1; u <= 10; ++u) {
-        engine.deposit(u, 0, 100000000); // 100M USD
-        engine.deposit(u, 1, 1000000);   // 1M BTC
-        engine.deposit(u, 2, 1000000);   // 1M ETH
+        engine.deposit(u, 0, 100000000); 
+        engine.deposit(u, 1, 1000000);   
+        engine.deposit(u, 2, 1000000);   
     }
 
     engine.start();
@@ -46,16 +47,20 @@ int main() {
         while(true) {
             OutboundEvent out;
             if (outbound.pop(out)) {
-                // 1. Zero-Copy Append to Memory-Mapped File (O(1))
                 journal.append(out);
 
-                // 2. Broadcast / Log Event
                 if (out.type == OutboundEventType::TRADE) {
-                    std::cout << "[TRADE] Symbol: " << out.symbol_id 
-                              << " Price: " << out.price 
-                              << " Qty: " << out.quantity << "\n";
-                } else if (out.type == OutboundEventType::ORDER_REJECTED) {
-                    std::cout << "[REJECTED] Order " << out.order_id << " (Insufficient Funds)\n";
+                    std::stringstream ss;
+                    ss << "{\"type\": \"TRADE\", \"symbol\": " << out.symbol_id 
+                       << ", \"price\": " << out.price 
+                       << ", \"qty\": " << out.quantity 
+                       << ", \"buyer\": " << out.buyer_id
+                       << ", \"seller\": " << out.seller_id << "}";
+                       
+                    std::lock_guard<std::mutex> cl_lock(clients_mutex);
+                    for(auto* conn : clients) {
+                        conn->send_text(ss.str());
+                    }
                 }
             } else {
                 std::this_thread::yield();
@@ -69,13 +74,13 @@ int main() {
         std::uniform_int_distribution<uint64_t> price_dist(950, 1050);
         std::uniform_int_distribution<uint64_t> qty_dist(1, 100);
         std::uniform_int_distribution<int> side_dist(0, 1);
-        std::uniform_int_distribution<uint32_t> symbol_dist(1, 2);
+        std::uniform_int_distribution<uint32_t> symbol_dist(1, 1); // Only BTC for clean TUI
         std::uniform_int_distribution<uint64_t> user_dist(1, 10);
 
         while (true) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
             
-            for(int i=0; i<5; ++i) {
+            for(int i=0; i<3; ++i) {
                 InboundEvent ev;
                 ev.type = EventType::ADD_ORDER;
                 ev.symbol_id = symbol_dist(gen);
@@ -92,10 +97,13 @@ int main() {
             std::string snap = engine.get_snapshot(1);
             engine.start();
 
+            std::stringstream ss;
+            ss << "{\"type\": \"SNAPSHOT\", \"data\": " << snap << "}";
+
             {
                 std::lock_guard<std::mutex> cl_lock(clients_mutex);
                 for(auto* conn : clients) {
-                    conn->send_text(snap);
+                    conn->send_text(ss.str());
                 }
             }
         }
