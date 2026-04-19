@@ -2,13 +2,11 @@
 #include "engine_manager.h"
 #include "spsc_queue.h"
 #include "event_journal.h"
-#include "crow.h"
 #include <iostream>
 #include <thread>
 #include <mutex>
 #include <chrono>
 #include <random>
-#include <unordered_set>
 #include <sstream>
 
 int main() {
@@ -25,21 +23,6 @@ int main() {
 
     engine.start();
 
-    std::unordered_set<crow::websocket::connection*> clients;
-    std::mutex clients_mutex;
-
-    crow::SimpleApp app;
-
-    CROW_WEBSOCKET_ROUTE(app, "/ws")
-      .onopen([&](crow::websocket::connection& conn) {
-          std::lock_guard<std::mutex> lock(clients_mutex);
-          clients.insert(&conn);
-      })
-      .onclose([&](crow::websocket::connection& conn, const std::string& reason) {
-          std::lock_guard<std::mutex> lock(clients_mutex);
-          clients.erase(&conn);
-      });
-
     // Market Data Publisher + Event Sourcing
     std::thread mdp_thread([&]() {
         EventJournal journal("apex_journal.bin");
@@ -50,17 +33,11 @@ int main() {
                 journal.append(out);
 
                 if (out.type == OutboundEventType::TRADE) {
-                    std::stringstream ss;
-                    ss << "{\"type\": \"TRADE\", \"symbol\": " << out.symbol_id 
+                    std::cout << "{\"type\": \"TRADE\", \"symbol\": " << out.symbol_id 
                        << ", \"price\": " << out.price 
                        << ", \"qty\": " << out.quantity 
                        << ", \"buyer\": " << out.buyer_id
-                       << ", \"seller\": " << out.seller_id << "}";
-                       
-                    std::lock_guard<std::mutex> cl_lock(clients_mutex);
-                    for(auto* conn : clients) {
-                        conn->send_text(ss.str());
-                    }
+                       << ", \"seller\": " << out.seller_id << "}\n";
                 }
             } else {
                 std::this_thread::yield();
@@ -97,21 +74,13 @@ int main() {
             std::string snap = engine.get_snapshot(1);
             engine.start();
 
-            std::stringstream ss;
-            ss << "{\"type\": \"SNAPSHOT\", \"data\": " << snap << "}";
-
-            {
-                std::lock_guard<std::mutex> cl_lock(clients_mutex);
-                for(auto* conn : clients) {
-                    conn->send_text(ss.str());
-                }
-            }
+            std::cout << "{\"type\": \"SNAPSHOT\", \"data\": " << snap << "}\n";
         }
     });
 
-    std::cout << "Starting ApexBook Core Exchange on ws://localhost:8080/ws\n";
-    app.port(8080).multithreaded().run();
-
+    std::cout << "{\"type\": \"INFO\", \"msg\": \"Starting ApexBook Core Exchange\"}\n";
+    
+    // Run forever
     engine.stop();
     gateway_thread.join();
     mdp_thread.join();
