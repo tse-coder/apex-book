@@ -1,6 +1,5 @@
 import asyncio
 import json
-import websockets
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Header, Footer, DataTable, Log, Static
@@ -63,15 +62,33 @@ class ApexBookTUI(App):
 
     @work(exclusive=True, thread=False)
     async def connect_to_feed(self) -> None:
-        uri = "ws://localhost:8080/ws"
         try:
-            async with websockets.connect(uri) as ws:
-                self.query_one("#tape", Log).write_line(f"[bold green]Connected to {uri}[/]")
-                async for message in ws:
-                    data = json.loads(message)
+            # Spawn the C++ engine directly
+            process = await asyncio.create_subprocess_exec(
+                "../build/apex_server",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            self.query_one("#tape", Log).write_line("[bold green]Started ApexBook C++ Engine...[/]")
+            
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                    
+                line_str = line.decode('utf-8').strip()
+                if not line_str:
+                    continue
+                    
+                try:
+                    data = json.loads(line_str)
                     self.process_message(data)
+                except json.JSONDecodeError:
+                    self.query_one("#tape", Log).write_line(f"[dim]Engine: {line_str}[/]")
+
         except Exception as e:
-            self.query_one("#tape", Log).write_line(f"[bold red]Connection failed: {e}[/]")
+            self.query_one("#tape", Log).write_line(f"[bold red]Failed to start engine: {e}[/]")
 
     def process_message(self, data: dict) -> None:
         msg_type = data.get("type")
