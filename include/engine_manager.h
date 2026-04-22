@@ -127,4 +127,8 @@ public:
         }
         return "{}";
     }
+
+    std::string get_balances_snapshot() {
+        return accounts.get_balances_snapshot();
+    }
 };

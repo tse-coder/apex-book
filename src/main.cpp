@@ -72,9 +72,10 @@ int main() {
 
             engine.stop();
             std::string snap = engine.get_snapshot(1);
+            std::string bal_snap = engine.get_balances_snapshot();
             engine.start();
 
-            std::cout << "{\"type\": \"SNAPSHOT\", \"data\": " << snap << "}\n";
+            std::cout << "{\"type\": \"SNAPSHOT\", \"data\": " << snap << ", \"balances\": " << bal_snap << "}\n";
         }
     });
 

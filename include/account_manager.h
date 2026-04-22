@@ -50,4 +50,23 @@ public:
         accounts[seller_id][base_asset].locked -= quantity;
         accounts[buyer_id][base_asset].available += quantity;
     }
+
+    std::string get_balances_snapshot() {
+        std::string out = "[";
+        bool first_user = true;
+        for (const auto& [user_id, balances] : accounts) {
+            if (!first_user) out += ",";
+            out += "{\"user_id\":" + std::to_string(user_id) + ",\"assets\":[";
+            bool first_asset = true;
+            for (const auto& [asset_id, bal] : balances) {
+                if (!first_asset) out += ",";
+                out += "{\"asset_id\":" + std::to_string(asset_id) + ",\"available\":" + std::to_string(bal.available) + ",\"locked\":" + std::to_string(bal.locked) + "}";
+                first_asset = false;
+            }
+            out += "]}";
+            first_user = false;
+        }
+        out += "]";
+        return out;
+    }
 };
