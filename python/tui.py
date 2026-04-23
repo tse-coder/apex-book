@@ -10,13 +10,25 @@ class ApexBookTUI(App):
     Screen {
         layout: vertical;
     }
-    #main_container {
+    #main_layout {
         height: 1fr;
-        layout: horizontal;
+    }
+    #top_row {
+        height: 2fr;
+    }
+    #bottom_row {
+        height: 1fr;
+        border-top: solid green;
     }
     .pane {
         width: 1fr;
-        border: solid green;
+        border-right: solid green;
+        height: 1fr;
+    }
+    .chart_pane {
+        width: 1fr;
+        border-right: solid green;
+        height: 1fr;
     }
     .pane_title {
         text-align: center;
@@ -30,10 +42,8 @@ class ApexBookTUI(App):
     Log {
         height: 1fr;
     }
-    #spark_container {
-        height: 3;
+    Sparkline {
         margin-top: 1;
-        border: solid blue;
     }
     """
     
@@ -44,37 +54,49 @@ class ApexBookTUI(App):
 
     def __init__(self):
         super().__init__()
-        self.spread_history = []
+        self.spread_history = [0] * 50
+        self.price_history = [1000] * 50
+        self.volume_history = [0] * 50
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        with Horizontal(id="main_container"):
-            # Left: OrderBook + Spread Sparkline
-            with Vertical(classes="pane"):
-                yield Static("Live Limit Order Book", classes="pane_title")
-                yield DataTable(id="orderbook")
-                with Vertical(id="spark_container"):
-                    yield Static("Spread Trend (Ticks)", classes="pane_title")
-                    yield Sparkline(id="spread_spark", data=[0]*50, summary_function=max)
+        with Vertical(id="main_layout"):
+            with Horizontal(id="top_row"):
+                # Left: OrderBook
+                with Vertical(classes="pane"):
+                    yield Static("Live Limit Order Book", classes="pane_title")
+                    yield DataTable(id="orderbook")
+                        
+                # Middle: Trade Tape
+                with Vertical(classes="pane"):
+                    yield Static("Trade Tape", classes="pane_title")
+                    yield Log(id="tape", highlight=True)
                     
-            # Middle: Trade Tape
-            with Vertical(classes="pane"):
-                yield Static("Trade Tape", classes="pane_title")
-                yield Log(id="tape", highlight=True)
-                
-            # Right: Account Balances
-            with Vertical(classes="pane"):
-                yield Static("Account Balances", classes="pane_title")
-                yield DataTable(id="balances")
+                # Right: Account Balances
+                with Vertical(classes="pane"):
+                    yield Static("Account Balances", classes="pane_title")
+                    yield DataTable(id="balances")
+                    
+            with Horizontal(id="bottom_row"):
+                # Bottom Left: Spread Chart
+                with Vertical(classes="chart_pane"):
+                    yield Static("Spread Trend (Ticks)", classes="pane_title")
+                    yield Sparkline(id="spread_spark", data=self.spread_history)
+                # Bottom Middle: Price Chart
+                with Vertical(classes="chart_pane"):
+                    yield Static("Execution Price ($)", classes="pane_title")
+                    yield Sparkline(id="price_spark", data=self.price_history)
+                # Bottom Right: Volume Chart
+                with Vertical(classes="chart_pane"):
+                    yield Static("Trade Volume (Qty)", classes="pane_title")
+                    yield Sparkline(id="volume_spark", data=self.volume_history)
                 
         yield Footer()
 
     def on_mount(self) -> None:
-        # Init Orderbook Table
         ob = self.query_one("#orderbook", DataTable)
         ob.add_columns("Side", "Price", "Qty")
         
-        # Init Balances Table
         bal = self.query_one("#balances", DataTable)
         bal.add_columns("User", "USD", "BTC", "ETH")
         
@@ -127,7 +149,6 @@ class ApexBookTUI(App):
         asks = book_data.get("asks", [])
         bids = book_data.get("bids", [])
         
-        # Update Spread Sparkline
         if asks and bids:
             best_ask = asks[0][0]
             best_bid = bids[0][0]
@@ -137,11 +158,9 @@ class ApexBookTUI(App):
                 self.spread_history.pop(0)
             self.query_one("#spread_spark", Sparkline).data = self.spread_history
 
-        # Asks
         for price, qty in reversed(asks):
             table.add_row("ASK", f"${price}", qty)
             
-        # Bids
         for price, qty in bids:
             table.add_row("BID", f"${price}", qty)
 
@@ -156,7 +175,6 @@ class ApexBookTUI(App):
             for asset in user.get("assets", []):
                 aid = asset.get("asset_id")
                 avail = asset.get("available")
-                # Format balances cleanly
                 if aid == 0: usd = avail
                 elif aid == 1: btc = avail
                 elif aid == 2: eth = avail
@@ -169,6 +187,17 @@ class ApexBookTUI(App):
         qty = trade.get("qty")
         buyer = trade.get("buyer")
         seller = trade.get("seller")
+        
+        # Update Price & Volume Charts
+        self.price_history.append(price)
+        if len(self.price_history) > 50:
+            self.price_history.pop(0)
+        self.query_one("#price_spark", Sparkline).data = self.price_history
+        
+        self.volume_history.append(qty)
+        if len(self.volume_history) > 50:
+            self.volume_history.pop(0)
+        self.query_one("#volume_spark", Sparkline).data = self.volume_history
         
         line = f"TRADE | Px: ${price} | Qty: {qty} | B: {buyer} | S: {seller}"
         tape.write_line(line)
