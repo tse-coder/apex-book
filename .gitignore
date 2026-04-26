@@ -1,0 +1,29 @@
+# Build output
+build/
+bin/
+*.o
+*.out
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Binaries & Core Dumps
+*.bin
+*.so
+*.a
+standalone_test
+test3
+benchmark_engine
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
